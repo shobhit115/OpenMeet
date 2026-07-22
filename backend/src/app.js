@@ -20,7 +20,6 @@ app.set("port", process.env.PORT || 8000);
 
 app.set("host", process.env.HOST || "localhost");
 
-app.use(cors());
 app.use(express.json({limit:"40kb"}));
 app.use(express.urlencoded({limit:"40kb",extended:true}));
 
