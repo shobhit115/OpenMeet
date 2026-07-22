@@ -20,11 +20,11 @@ function App() {
             <Route element={<Layout />}>
               <Route path="/" element={<LandingPage />} />
               <Route path="/home" element={<Home />} />
-              <Route path="/:url" element={<VideoMeet />} />
+            <Route path="/auth" element={<Auth />} />
             </Route>
 
             {/* Standalone page without the main navbar */}
-            <Route path="/auth" element={<Auth />} />
+              <Route path="/:url" element={<VideoMeet />} />
           </Routes>
         </Router>
       </SnackbarProvider>

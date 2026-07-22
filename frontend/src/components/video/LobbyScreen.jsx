@@ -12,6 +12,9 @@ export default function LobbyScreen({
     setUsername, 
     connectToMeeting 
 }) {
+    // Helper to determine if we should show the video feed
+    const showVideo = videoAvailable && videoState;
+
     return (
         <div className="flex-1 flex items-center justify-center p-6 max-w-7xl mx-auto w-full">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center w-full max-w-5xl">
@@ -20,23 +23,24 @@ export default function LobbyScreen({
                 <div className="lg:col-span-7 flex flex-col items-center">
                     <div className="relative w-full aspect-video bg-gray-950 rounded-2xl overflow-hidden shadow-2xl border border-gray-200 dark:border-gray-800 flex items-center justify-center group">
                         
-                        {/* Video Element or Placeholder */}
-                        {videoAvailable && videoState ? (
-                            <video 
-                                ref={lobbyVideoRef} 
-                                autoPlay 
-                                muted 
-                                playsInline 
-                                className="w-full h-full object-cover transform scale-x-[-1]" 
-                            />
-                        ) : (
-                            <div className="flex flex-col items-center justify-center text-gray-400 gap-3">
+                        {/* 
+                          FIX: The video element must ALWAYS remain in the DOM so it doesn't lose its srcObject stream. 
+                          We use the 'hidden' tailwind class to hide it when the camera is off.
+                        */}
+                        <video 
+                            ref={lobbyVideoRef} 
+                            autoPlay 
+                            muted 
+                            playsInline 
+                            className={`w-full h-full object-cover transform scale-x-[-1] ${!showVideo ? 'hidden' : ''}`} 
+                        />
+                        
+                        {/* Placeholder - Only shows when video is off */}
+                        {!showVideo && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 gap-3">
                                 <div className="w-20 h-20 rounded-full bg-gray-800 flex items-center justify-center text-2xl font-bold text-white shadow-inner">
                                     {username ? username.charAt(0).toUpperCase() : "?"}
                                 </div>
-                                <span className="text-sm font-medium">
-                                    {!videoAvailable ? "Camera not available" : "Camera is off"}
-                                </span>
                             </div>
                         )}
 
