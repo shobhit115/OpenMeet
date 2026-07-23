@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import heroImage from "../assets/hero.png";
@@ -6,7 +6,6 @@ import heroImage from "../assets/hero.png";
 export default function LandingPage() {
     const navigate = useNavigate();
     const { userData } = useAuth();
-    const [meetingCode, setMeetingCode] = useState("");
     
     const token = localStorage.getItem("token");
     const isAuthenticated = userData || token;
@@ -16,14 +15,6 @@ export default function LandingPage() {
             navigate("/home");
         } else {
             navigate("/auth");
-        }
-    };
-
-    const handleJoinMeeting = (e) => {
-        e.preventDefault();
-        if (meetingCode.trim()) {
-            const cleanCode = meetingCode.replace(/^https?:\/\/[^\/]+\//, "").trim();
-            navigate(`/${cleanCode}`);
         }
     };
 
@@ -47,23 +38,6 @@ export default function LandingPage() {
                         >
                             {isAuthenticated ? "Go to Dashboard" : "Start for Free"}
                         </button>
-
-                        <form onSubmit={handleJoinMeeting} className="flex items-center gap-2 w-full sm:w-auto">
-                            <input 
-                                type="text"
-                                placeholder="Enter meeting code"
-                                value={meetingCode}
-                                onChange={(e) => setMeetingCode(e.target.value)}
-                                className="px-4 py-3.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-[var(--bg)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] w-full sm:w-64"
-                            />
-                            <button 
-                                type="submit"
-                                disabled={!meetingCode.trim()}
-                                className="px-5 py-3.5 font-semibold text-[var(--primary)] disabled:text-gray-400 hover:bg-[var(--card-bg)] rounded-xl transition"
-                            >
-                                Join
-                            </button>
-                        </form>
                     </div>
                 </div>
 

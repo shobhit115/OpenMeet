@@ -10,10 +10,20 @@ export default function Layout() {
     const [currentTime, setCurrentTime] = useState(new Date());
 
     const token = localStorage.getItem("token");
-const storedUser = JSON.parse(localStorage.getItem("user"));
 
-const currentUser = userData || storedUser;
-const isAuthenticated = !!token;
+    // Safe retrieval & parsing of user data
+    const getStoredUser = () => {
+        try {
+            const item = localStorage.getItem("user");
+            return item && item !== "undefined" ? JSON.parse(item) : null;
+        } catch {
+            return null;
+        }
+    };
+
+    const storedUser = getStoredUser();
+    const currentUser = userData || storedUser;
+    const isAuthenticated = !!token;
 
     // Live clock update
     useEffect(() => {
@@ -22,22 +32,22 @@ const isAuthenticated = !!token;
     }, []);
 
     const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
 
-    setUserData(null);
+        setUserData(null);
 
-    showMessage("Logged out successfully", "info");
-    navigate("/");
-};
+        showMessage("Logged out successfully", "info");
+        navigate("/");
+    };
 
     return (
         <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] flex flex-col transition-colors duration-300">
             {/* Top Navigation Bar */}
             <header className="w-full max-w-7xl mx-auto px-6 py-4 flex justify-between items-center shrink-0">
                 {/* Logo */}
-                <div 
-                    className="flex items-center gap-3 cursor-pointer select-none" 
+                <div
+                    className="flex items-center gap-3 cursor-pointer select-none"
                     onClick={() => navigate("/")}
                 >
                     <div className="w-10 h-10 rounded-xl bg-[var(--primary)] flex items-center justify-center text-white font-extrabold text-xl shadow-lg shadow-[var(--primary)]/30">
@@ -63,7 +73,7 @@ const isAuthenticated = !!token;
                                     {currentUser?.name || "User"}
                                 </span>
                             </div>
-                            <button 
+                            <button
                                 onClick={handleLogout}
                                 className="px-4 py-2 border border-gray-300 dark:border-gray-700 hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 rounded-lg text-sm font-medium transition"
                             >
@@ -72,14 +82,14 @@ const isAuthenticated = !!token;
                         </div>
                     ) : (
                         <div className="flex items-center gap-3">
-                            <button 
-                                onClick={() => navigate("/auth")} 
+                            <button
+                                onClick={() => navigate("/auth")}
                                 className="text-[var(--primary)] font-semibold hover:text-[var(--primary-hover)] px-3 py-2 transition"
                             >
                                 Sign In
                             </button>
-                            <button 
-                                onClick={() => navigate("/auth")} 
+                            <button
+                                onClick={() => navigate("/auth")}
                                 className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white px-5 py-2.5 rounded-lg font-medium shadow-md transition"
                             >
                                 Get Started

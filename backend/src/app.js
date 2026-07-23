@@ -3,21 +3,18 @@ import express from "express";
 import { createServer } from "node:http";
 
 import { connectToSocket } from "./controllers/socketManager.js";
-
 import mongoose from "mongoose";
-
 import cors from "cors";
+
 import userRoutes from "./routes/users.routes.js";
+// 1. Import your meeting routes
+import meetingRoutes from "./routes/meeting.routes.js"; 
 
 const app = express();
-
-
 const server = createServer(app);
-
 const io = connectToSocket(server);
 
 app.set("port", process.env.PORT || 8000);
-
 app.set("host", process.env.HOST || "localhost");
 
 app.use(express.json({limit:"40kb"}));
@@ -46,7 +43,10 @@ app.use(
 app.get("/home",(req,res)=>{
     return res.json({message:"Hello World!"})
 });
-app.use("/api/v1/user",userRoutes);
+
+app.use("/api/v1/user", userRoutes);
+// 2. Mount the meeting routes
+app.use("/api/v1/meetings", meetingRoutes); 
 
 const start = async ()=>{
     const connectionDb = await mongoose.connect(process.env.MONGO_URI);

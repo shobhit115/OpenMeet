@@ -9,9 +9,13 @@ export default function Home() {
     const { showMessage } = useSnackbar();
 
     const [meetingCode, setMeetingCode] = useState("");
+    const [isLoading, setIsLoading] = useState(false);
 
     const token = localStorage.getItem("token");
     const isAuthenticated = userData || token;
+
+    // Adjust this to match your backend URL
+    const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
     const generateMeetingCode = () => {
         const chars = "abcdefghijklmnopqrstuvwxyz";
@@ -24,25 +28,69 @@ export default function Home() {
         return code;
     };
 
-    const handleCreateMeeting = () => {
+    const handleCreateMeeting = async () => {
         if (!isAuthenticated) {
             showMessage("Only logged-in users can create a meeting. Please log in.", "error");
             navigate("/auth");
             return;
         }
+        
+        setIsLoading(true);
         const newCode = generateMeetingCode();
-        navigate(`/${newCode}`);
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/v1/meetings/create`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                    user_id: userData?._id || userData?.id, // Send user ID to backend
+                    meetingCode: newCode 
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showMessage("Meeting created successfully", "success");
+                navigate(`/${data.meetingCode}`);
+            } else {
+                showMessage(data.error || "Failed to create meeting", "error");
+            }
+        } catch (error) {
+            showMessage("Server error while creating meeting", "error");
+        } finally {
+            setIsLoading(false);
+        }
     };
 
-    const handleJoinMeeting = (e) => {
+    const handleJoinMeeting = async (e) => {
         e.preventDefault();
+        
         if (!meetingCode.trim()) {
             showMessage("Please enter a valid meeting code.", "error");
             return;
         }
         
         const code = meetingCode.replace(/^https?:\/\/[^\/]+\//, "").trim();
-        navigate(`/${code}`);
+        setIsLoading(true);
+
+        try {
+            // Check if meeting exists in backend
+            const response = await fetch(`${API_BASE_URL}/api/v1/meetings/join/${code}`);
+            const data = await response.json();
+
+            if (response.ok) {
+                // Meeting exists, join it
+                navigate(`/${code}`);
+            } else {
+                // 404 or other errors
+                showMessage(data.error || "Meeting not found or invalid code.", "error");
+            }
+        } catch (error) {
+            showMessage("Server error while joining meeting.", "error");
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -65,12 +113,13 @@ export default function Home() {
                         {/* Create Meeting Button */}
                         <button 
                             onClick={handleCreateMeeting}
-                            className="flex items-center justify-center gap-3 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white px-6 py-3.5 rounded-xl font-medium text-base transition shadow-md shadow-[var(--primary)]/20 w-full sm:w-auto shrink-0"
+                            disabled={isLoading}
+                            className={`flex items-center justify-center gap-3 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white px-6 py-3.5 rounded-xl font-medium text-base transition shadow-md shadow-[var(--primary)]/20 w-full sm:w-auto shrink-0 ${isLoading ? 'opacity-70 cursor-wait' : ''}`}
                         >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                             </svg>
-                            New Meeting
+                            {isLoading ? "Loading..." : "New Meeting"}
                         </button>
 
                         {/* Join Input */}
@@ -86,15 +135,16 @@ export default function Home() {
                                     placeholder="Enter a code or link" 
                                     value={meetingCode}
                                     onChange={(e) => setMeetingCode(e.target.value)}
-                                    className="pl-11 pr-4 py-3.5 border border-gray-300 dark:border-gray-700 rounded-xl bg-transparent focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] w-full transition text-[var(--text)] placeholder-gray-400"
+                                    disabled={isLoading}
+                                    className="pl-11 pr-4 py-3.5 border border-gray-300 dark:border-gray-700 rounded-xl bg-transparent focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] w-full transition text-[var(--text)] placeholder-gray-400 disabled:opacity-50"
                                 />
                             </div>
                             
                             <button 
                                 type="submit"
-                                disabled={!meetingCode.trim()}
+                                disabled={!meetingCode.trim() || isLoading}
                                 className={`font-semibold px-5 py-3.5 rounded-xl transition ${
-                                    meetingCode.trim() 
+                                    meetingCode.trim() && !isLoading
                                     ? "text-[var(--primary)] hover:bg-[var(--card-bg)] cursor-pointer" 
                                     : "text-gray-400 cursor-not-allowed"
                                 }`}
