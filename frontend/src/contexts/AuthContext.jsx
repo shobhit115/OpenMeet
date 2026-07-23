@@ -4,12 +4,22 @@ import axios from "axios";
 export const AuthContext = createContext({});
 
 const client = axios.create({
-    // Always include http://
     baseURL: `${import.meta.env.VITE_BACKEND_URL || "http://localhost:8000"}/api/v1/user`
 });
 
+// Helper function to safely read from localStorage
+const getStoredUser = () => {
+    try {
+        const item = localStorage.getItem("user");
+        return item && item !== "undefined" ? JSON.parse(item) : null;
+    } catch {
+        return null;
+    }
+};
+
 export const AuthProvider = ({ children }) => {
-    const [userData, setUserData] = useState(null);
+    // Initialize state directly from localStorage safely
+    const [userData, setUserData] = useState(getStoredUser);
 
     const handleRegister = async (name, username, password) => {
         try {
@@ -23,10 +33,23 @@ export const AuthProvider = ({ children }) => {
     const handleLogin = async (username, password) => {
         try {
             const request = await client.post("/login", { username, password });
+            
             if (request.status === 200) {
-                localStorage.setItem("token", request.data.token);
-                localStorage.setItem("user", JSON.stringify(request.data.user));
-                setUserData(request.data.user); // Assuming your API returns user info
+                const { token, user } = request.data;
+
+                if (token) {
+                    localStorage.setItem("token", token);
+                }
+
+                // Fix: Only stringify and store if 'user' is actually defined!
+                if (user) {
+                    localStorage.setItem("user", JSON.stringify(user));
+                    setUserData(user);
+                } else {
+                    // Fallback in case API returns user data under a different key or format
+                    localStorage.removeItem("user");
+                    setUserData(null);
+                }
             }
         } catch (err) {
             throw err;
