@@ -19,8 +19,11 @@ export default function VideoMeet() {
     const [audioAvailable, setAudioAvailable] = useState(false);
     const [videoState, setVideoState] = useState(true);
     const [audioState, setAudioState] = useState(true);
+    
+    // Screen sharing states
     const [screenState, setScreenState] = useState(false);
     const [screenAvailable, setScreenAvailable] = useState(false);
+    const [localScreenStream, setLocalScreenStream] = useState(null);
 
     const [askForUsername, setAskForUsername] = useState(true);
     const [username, setUsername] = useState(userData?.name || userData?.username || "");
@@ -33,8 +36,8 @@ export default function VideoMeet() {
     const [pinnedId, setPinnedId] = useState(null); 
 
     const roomPath = window.location.pathname;
-    const { connect, disconnect, sendChatMessage, peerConnectionsRef, remoteStreams, remoteUsers, messages } = useWebRTC(roomPath, username, showMessage);
-
+    const { connect, disconnect, sendChatMessage, peerConnectionsRef, remoteStreams, remoteUsers, messages, streamTypes } = useWebRTC(roomPath, username, showMessage);
+    
     const toggleChatTab = () => {
         if (isDrawerOpen && activeTab === 'chat') setIsDrawerOpen(false);
         else { setActiveTab("chat"); setIsDrawerOpen(true); }
@@ -76,7 +79,9 @@ export default function VideoMeet() {
     }, [askForUsername]);
 
     useEffect(() => {
-        if (!askForUsername && window.localStream && localVideoRef.current && videoState) localVideoRef.current.srcObject = window.localStream;
+        if (!askForUsername && window.localStream && localVideoRef.current && videoState) {
+            localVideoRef.current.srcObject = window.localStream;
+        }
     }, [askForUsername, videoState]);
 
     useEffect(() => {
@@ -87,9 +92,20 @@ export default function VideoMeet() {
         if ((!isDrawerOpen || activeTab !== 'chat') && messages.length > 0) setUnreadCount(prev => prev + 1);
     }, [messages.length]);
 
+    // Unpin a remote user if they leave the meeting
     useEffect(() => {
-        if (pinnedId && pinnedId !== 'local' && !remoteUsers[pinnedId]) setPinnedId(null);
-    }, [remoteUsers, pinnedId]);
+        if (pinnedId && pinnedId !== 'local' && pinnedId !== 'local-screen') {
+            const isPinnedUserStillPresent = remoteStreams.some(peer => {
+                const streamId = peer.stream?.id || 'no-stream';
+                return `${peer.socketId}-${streamId}` === pinnedId;
+            });
+
+            if (!isPinnedUserStillPresent) {
+                setPinnedId(null);
+                showMessage("Pinned user left the meeting", "info");
+            }
+        }
+    }, [remoteStreams, pinnedId, showMessage]);
 
     const connectToMeeting = () => {
         if (!username.trim()) { showMessage("Please enter a username", "error"); return; }
@@ -116,13 +132,22 @@ export default function VideoMeet() {
             if (!screenState) {
                 const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
                 const videoTrack = screenStream.getVideoTracks()[0];
-                Object.values(peerConnectionsRef.current).forEach(pc => {
-                    const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
-                    if (sender) sender.replaceTrack(videoTrack);
-                });
-                videoTrack.onended = stopScreenShare;
-                if (localVideoRef.current) localVideoRef.current.srcObject = screenStream;
+                
+                setLocalScreenStream(screenStream);
+                window.localScreenStream = screenStream;
                 setScreenState(true);
+
+                Object.keys(peerConnectionsRef.current).forEach(socketId => {
+                    const pc = peerConnectionsRef.current[socketId];
+                    if (pc.signalingState !== 'closed') {
+                        pc.addTrack(videoTrack, screenStream);
+                    }
+                });
+
+                videoTrack.onended = stopScreenShare;
+
+                showMessage("You started sharing your screen", "info");
+                sendChatMessage(`📢 ${username} started sharing their screen`);
             } else {
                 stopScreenShare();
             }
@@ -132,15 +157,25 @@ export default function VideoMeet() {
     };
 
     const stopScreenShare = () => {
-        if (window.localStream && videoAvailable) {
-            const videoTrack = window.localStream.getVideoTracks()[0];
+        if (localScreenStream) {
+            const screenTrack = localScreenStream.getVideoTracks()[0];
+            
             Object.values(peerConnectionsRef.current).forEach(pc => {
-                const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
-                if (sender && videoTrack) sender.replaceTrack(videoTrack);
+                if (pc.signalingState !== 'closed') {
+                    const sender = pc.getSenders().find(s => s.track === screenTrack);
+                    if (sender) {
+                        try { pc.removeTrack(sender); } catch (e) { console.error(e) }
+                    }
+                }
             });
-            if (localVideoRef.current) localVideoRef.current.srcObject = window.localStream;
+            localScreenStream.getTracks().forEach(t => t.stop());
         }
+        setLocalScreenStream(null);
+        window.localScreenStream = null;
         setScreenState(false);
+
+        showMessage("Screen sharing stopped", "info");
+        sendChatMessage(`📢 ${username} stopped sharing their screen`);
     };
 
     const handleSendMessage = (e) => {
@@ -151,15 +186,15 @@ export default function VideoMeet() {
     };
 
     const leaveMeeting = () => {
+        stopScreenShare();
         if (window.localStream) window.localStream.getTracks().forEach(track => track.stop());
         disconnect();
         window.location.href = "/home";
     };
 
     const initial = username ? username.charAt(0).toUpperCase() : "U";
-    const totalParticipantsCount = 1 + Object.keys(remoteUsers).length;
+    const totalParticipantsCount = 1 + (screenState ? 1 : 0) + remoteStreams.length;
 
-    // Dynamic grid that forces items to stretch properly
     const gridLayoutClass = useMemo(() => {
         if (totalParticipantsCount === 1) return "grid-cols-1 grid-rows-1";
         if (totalParticipantsCount === 2) return "grid-cols-1 sm:grid-cols-2 grid-rows-1";
@@ -171,9 +206,9 @@ export default function VideoMeet() {
     const renderLocalVideo = (isSidebarItem = false) => {
         const isPinned = pinnedId === 'local';
         return (
-            <div className={`relative bg-gray-900 rounded-2xl overflow-hidden shadow-xl flex items-center justify-center w-full h-full group transition-all duration-300 ${
+            <div className={`relative bg-gray-900 rounded-2xl overflow-hidden shadow-xl flex items-center justify-center w-full h-full group transition-all duration-300 cursor-pointer ${
                 isPinned && !isSidebarItem ? 'border-2 border-blue-500' : 'border border-gray-800'
-            }`}>
+            }`} onClick={() => handlePin('local')}>
                 {videoAvailable && videoState ? (
                     <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover transform scale-x-[-1]" />
                 ) : (
@@ -183,27 +218,35 @@ export default function VideoMeet() {
                         </div>
                     </div>
                 )}
-                
-                {/* Fixed z-index to z-[5] */}
                 <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 text-xs font-medium text-white flex items-center gap-2 z-[5] shadow-md">
                     <span className="truncate max-w-[140px]">{username} (You)</span>
                 </div>
+            </div>
+        );
+    };
 
-                <div className={`absolute top-3 right-3 transition-opacity duration-200 flex items-center gap-2 z-[5] ${isPinned && !isSidebarItem ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                    <button onClick={() => handlePin('local')} className={`p-2 rounded-full backdrop-blur-md border border-white/10 transition flex items-center justify-center w-9 h-9 ${isPinned ? 'bg-blue-600 hover:bg-blue-700' : 'bg-black/60 hover:bg-black/80'}`}>
-                        {isPinned ? (
-                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                        ) : (
-                            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 256 256"><path d="M228.46,183.17c-8.91-17.72-27.18-29.23-45.71-33.39V64a34.75,34.75,0,0,0-10.18-24.57C165.73,32.61,156.45,28,146.61,28h-37.2c-9.84,0-19.12,4.61-25.95,11.44A34.75,34.75,0,0,0,73.28,64v85.78c-18.53,4.16-36.81,15.67-45.72,33.39a8,8,0,0,0,7.16,11.58H120v45.25a8,8,0,0,0,16,0V194.75h85.29A8,8,0,0,0,228.46,183.17Z" /></svg>
-                        )}
-                    </button>
+    const renderLocalScreen = () => {
+        if (!screenState || !localScreenStream) return null;
+        const isPinned = pinnedId === 'local-screen';
+        return (
+            <div className={`relative bg-gray-900 rounded-2xl overflow-hidden shadow-xl flex items-center justify-center w-full h-full group transition-all duration-300 cursor-pointer ${
+                isPinned ? 'border-2 border-blue-500' : 'border border-gray-800'
+            }`} onClick={() => handlePin('local-screen')}>
+                <video 
+                    ref={video => { if (video && video.srcObject !== localScreenStream) video.srcObject = localScreenStream; }} 
+                    autoPlay 
+                    muted 
+                    playsInline 
+                    className="w-full h-full object-contain" 
+                />
+                <div className="absolute bottom-3 left-3 bg-blue-600/90 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 text-xs font-medium text-white flex items-center gap-2 z-[5] shadow-md">
+                    <span className="truncate max-w-[140px]">Your Presentation</span>
                 </div>
             </div>
         );
     };
 
     return (
-        // Changed to exactly h-screen to prevent any vertical scrolling
         <div className="h-screen w-full bg-[#313338] font-sans flex flex-col overflow-hidden text-white">
             {askForUsername ? (
                 <LobbyScreen 
@@ -221,52 +264,97 @@ export default function VideoMeet() {
             ) : (
                 <div className="flex-1 flex flex-col overflow-hidden h-full">
                     <div className="flex-1 flex flex-row overflow-hidden relative h-full">
-
-                        {/* Added relative and z-0 here to trap absolute elements inside */}
                         <div className="flex-1 p-2 sm:p-4 overflow-hidden flex flex-col relative z-0 h-full">
                             
                             {pinnedId ? (
                                 <div className="flex-1 flex flex-col lg:flex-row gap-4 h-full overflow-hidden">
-                                    <div className="flex-1 h-full min-h-[40vh] flex items-center justify-center">
-                                        <div className="w-full h-full">
-                                            {pinnedId === 'local' 
-                                                ? renderLocalVideo() 
-                                                : remoteStreams.filter(p => p.socketId === pinnedId).map(peer => (
-                                                    <RemoteVideo key={peer.socketId} stream={peer.stream} username={remoteUsers[peer.socketId]} isPinned={true} onPin={() => handlePin(peer.socketId)} />
-                                                ))
+                                    
+                                    {/* Main Pinned View */}
+                                    <div className="flex-[3] h-full overflow-hidden rounded-2xl relative">
+                                        {pinnedId === 'local' && renderLocalVideo()}
+                                        {pinnedId === 'local-screen' && renderLocalScreen()}
+                                        {remoteStreams.map(peer => {
+                                            const streamId = peer.stream?.id || 'no-stream';
+                                            const isScreenShare = streamTypes && streamTypes[streamId] === "presentation";
+                                            if (`${peer.socketId}-${streamId}` === pinnedId) {
+                                                return <RemoteVideo 
+                                                    key={`pin-${peer.socketId}`} 
+                                                    stream={peer.stream} 
+                                                    username={remoteUsers[peer.socketId]} 
+                                                    isPinned={true} 
+                                                    isPresentation={isScreenShare}
+                                                    onPin={() => handlePin(pinnedId)} 
+                                                />;
                                             }
-                                        </div>
+                                            return null;
+                                        })}
                                     </div>
                                     
-                                    <div className="w-full lg:w-64 xl:w-80 flex lg:flex-col gap-3 overflow-x-auto lg:overflow-y-auto lg:overflow-x-hidden pb-2 lg:pb-0 pr-2">
+                                    {/* Sidebar Grid with Unpinned Participants */}
+                                    <div className="flex-1 flex lg:flex-col overflow-x-auto lg:overflow-y-auto gap-3 pb-2 lg:pb-0 scrollbar-hide lg:max-w-xs">
                                         {pinnedId !== 'local' && (
-                                            <div className="w-48 lg:w-full h-32 lg:h-48 flex-shrink-0">
+                                            <div className="min-w-[200px] lg:min-w-0 lg:h-48 flex-shrink-0">
                                                 {renderLocalVideo(true)}
                                             </div>
                                         )}
-                                        {remoteStreams.filter(p => p.socketId !== pinnedId).map(peer => (
-                                            <div key={peer.socketId} className="w-48 lg:w-full h-32 lg:h-48 flex-shrink-0">
-                                                <RemoteVideo stream={peer.stream} username={remoteUsers[peer.socketId]} isPinned={false} onPin={() => handlePin(peer.socketId)} />
+                                        {screenState && pinnedId !== 'local-screen' && (
+                                            <div className="min-w-[200px] lg:min-w-0 lg:h-48 flex-shrink-0">
+                                                {renderLocalScreen()}
                                             </div>
-                                        ))}
+                                        )}
+                                        {remoteStreams.map(peer => {
+                                            const streamId = peer.stream?.id || 'no-stream';
+                                            const id = `${peer.socketId}-${streamId}`;
+                                            const isScreenShare = streamTypes && streamTypes[streamId] === "presentation";
+                                            if (id !== pinnedId) {
+                                                return (
+                                                    <div key={`side-${id}`} className="min-w-[200px] lg:min-w-0 lg:h-48 flex-shrink-0">
+                                                        <RemoteVideo 
+                                                            stream={peer.stream} 
+                                                            username={remoteUsers[peer.socketId]} 
+                                                            isPinned={false} 
+                                                            isPresentation={isScreenShare}
+                                                            onPin={() => handlePin(id)} 
+                                                        />
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })}
                                     </div>
+
                                 </div>
                             ) : (
-                                /* Grid uses h-full and w-full heavily to maximize the area */
                                 <div className={`w-full h-full grid gap-3 lg:gap-4 ${gridLayoutClass}`}>
                                     <div className="w-full h-full">
                                         {renderLocalVideo()}
                                     </div>
-                                    {remoteStreams.map((peer) => (
-                                        <div key={peer.socketId} className="w-full h-full">
-                                            <RemoteVideo stream={peer.stream} username={remoteUsers[peer.socketId]} isPinned={false} onPin={() => handlePin(peer.socketId)} />
+                                    
+                                    {screenState && (
+                                        <div className="w-full h-full">
+                                            {renderLocalScreen()}
                                         </div>
-                                    ))}
+                                    )}
+
+                                    {remoteStreams.map((peer) => {
+                                        const streamId = peer.stream?.id || 'no-stream';
+                                        const isScreenShare = streamTypes && streamTypes[streamId] === "presentation";
+                                        return (
+                                            <div key={`${peer.socketId}-${streamId}`} className="w-full h-full">
+                                                <RemoteVideo 
+                                                    stream={peer.stream} 
+                                                    username={remoteUsers[peer.socketId]} 
+                                                    isPinned={false} 
+                                                    isPresentation={isScreenShare}
+                                                    onPin={() => handlePin(`${peer.socketId}-${streamId}`)} 
+                                                />
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>
 
-                        {/* Ensure your ChatDrawer component has a high z-index (e.g., z-50) internally if it overlaps */}
                         <ChatDrawer
                             isDrawerOpen={isDrawerOpen}
                             setIsDrawerOpen={setIsDrawerOpen}

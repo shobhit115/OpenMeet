@@ -16,6 +16,17 @@ export function useWebRTC(roomPath, username, showMessage) {
     const [remoteStreams, setRemoteStreams] = useState([]);
     const [remoteUsers, setRemoteUsers] = useState({});
     const [messages, setMessages] = useState([]);
+    
+    // NEW: State to track which stream is a camera and which is a presentation
+    const [streamTypes, setStreamTypes] = useState({});
+
+    // NEW: Helper to get the types of our local streams
+    const getStreamInfo = () => {
+        const info = {};
+        if (window.localStream) info[window.localStream.id] = "camera";
+        if (window.localScreenStream) info[window.localScreenStream.id] = "presentation";
+        return info;
+    };
 
     const connect = () => {
         socketRef.current = io(server_url);
@@ -49,10 +60,16 @@ export function useWebRTC(roomPath, username, showMessage) {
         });
 
         socketRef.current.on("signal", async (fromId, message) => {
-            const { type, signal, username: remoteUsername } = message;
+            // NEW: Extract streamInfo from the incoming signal
+            const { type, signal, username: remoteUsername, streamInfo } = message;
 
             if (remoteUsername) {
                 setRemoteUsers(prev => ({ ...prev, [fromId]: remoteUsername }));
+            }
+            
+            // NEW: Save the incoming stream types so the UI knows what they are
+            if (streamInfo) {
+                setStreamTypes(prev => ({ ...prev, ...streamInfo }));
             }
 
             let pc = peerConnectionsRef.current[fromId];
@@ -80,7 +97,14 @@ export function useWebRTC(roomPath, username, showMessage) {
                     
                     const answer = await pc.createAnswer();
                     await pc.setLocalDescription(answer);
-                    socketRef.current.emit("signal", fromId, { type: "answer", signal: answer, username });
+                    
+                    // NEW: Attach streamInfo to our answer
+                    socketRef.current.emit("signal", fromId, { 
+                        type: "answer", 
+                        signal: answer, 
+                        username,
+                        streamInfo: getStreamInfo() 
+                    });
                     
                 } else if (type === "answer") {
                     if (pc) {
@@ -90,7 +114,6 @@ export function useWebRTC(roomPath, username, showMessage) {
                     
                 } else if (type === "ice-candidate") {
                     if (pc && signal) {
-                        // Queue ICE candidates safely if the remote description isn't processed yet
                         if (!pc.remoteDescription) {
                             if (!pc.iceQueue) pc.iceQueue = [];
                             pc.iceQueue.push(new RTCIceCandidate(signal));
@@ -114,8 +137,6 @@ export function useWebRTC(roomPath, username, showMessage) {
         peerConnectionsRef.current[socketId] = pc;
         pc.iceQueue = []; 
 
-        // FIX: Immediately register the user in remoteStreams with a null stream
-        // This ensures a box is drawn for them even if their camera is off and they send no tracks!
         setRemoteStreams(prev => {
             if (!prev.some(s => s.socketId === socketId)) {
                 return [...prev, { socketId, stream: null }];
@@ -129,6 +150,31 @@ export function useWebRTC(roomPath, username, showMessage) {
             });
         }
 
+        if (window.localScreenStream) {
+            window.localScreenStream.getTracks().forEach(track => {
+                pc.addTrack(track, window.localScreenStream);
+            });
+        }
+
+        pc.onnegotiationneeded = async () => {
+            try {
+                if (pc.signalingState !== "stable") return; 
+                
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                
+                // NEW: Attach streamInfo when renegotiating (like when screen share starts)
+                socketRef.current.emit("signal", socketId, { 
+                    type: "offer", 
+                    signal: pc.localDescription, 
+                    username,
+                    streamInfo: getStreamInfo()
+                });
+            } catch (err) {
+                console.error("Error creating renegotiation offer:", err);
+            }
+        };
+
         pc.onicecandidate = (event) => {
             if (event.candidate) {
                 socketRef.current.emit("signal", socketId, { 
@@ -139,23 +185,16 @@ export function useWebRTC(roomPath, username, showMessage) {
         };
 
         pc.ontrack = (event) => {
-            console.log("Track received from peer:", socketId, event.track.kind);
-            
-            // Safely grab the stream or construct it from the raw track
-            const updatedStream = event.streams && event.streams[0] 
-                ? new MediaStream(event.streams[0].getTracks()) 
+            const incomingStream = event.streams && event.streams[0] 
+                ? event.streams[0] 
                 : new MediaStream([event.track]);
 
             setRemoteStreams(prev => {
-                const existingIndex = prev.findIndex(s => s.socketId === socketId);
-                
-                if (existingIndex !== -1) {
-                    const newStreams = [...prev];
-                    newStreams[existingIndex] = { socketId, stream: updatedStream };
-                    return newStreams;
-                }
-                
-                return [...prev, { socketId, stream: updatedStream }];
+                const alreadyExists = prev.some(s => s.stream && s.stream.id === incomingStream.id);
+                if (alreadyExists) return prev; 
+
+                const filteredPrev = prev.filter(s => !(s.socketId === socketId && s.stream === null));
+                return [...filteredPrev, { socketId, stream: incomingStream }];
             });
         };
 
@@ -163,10 +202,12 @@ export function useWebRTC(roomPath, username, showMessage) {
             pc.createOffer()
                 .then(offer => pc.setLocalDescription(offer))
                 .then(() => {
+                    // NEW: Attach streamInfo on initial offer
                     socketRef.current.emit("signal", socketId, { 
                         type: "offer", 
                         signal: pc.localDescription, 
-                        username 
+                        username,
+                        streamInfo: getStreamInfo()
                     });
                 })
                 .catch(err => console.error("Error creating offer:", err));
@@ -194,6 +235,7 @@ export function useWebRTC(roomPath, username, showMessage) {
         socketRef,
         remoteStreams,
         remoteUsers,
-        messages
+        messages,
+        streamTypes // NEW: Expose this to use in the parent component
     };
 }
