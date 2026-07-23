@@ -7,7 +7,11 @@ let timeOnline = {}
 export const connectToSocket = (server) => {
     const io = new Server(server, {
         cors: {
-            origin: process.env.CLIENT_URL,
+            origin: [
+                process.env.CLIENT_URL,               // e.g., 'https://opmeet.vercel.app'
+                "http://localhost:5173",               // Vite dev server
+                "http://localhost:3000"                // React alternative dev server just in case
+            ].filter(Boolean),
             methods: ["GET", "POST"],
             allowedHeaders: ["*"],
             credentials: true

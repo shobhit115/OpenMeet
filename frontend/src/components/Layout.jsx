@@ -10,7 +10,10 @@ export default function Layout() {
     const [currentTime, setCurrentTime] = useState(new Date());
 
     const token = localStorage.getItem("token");
-    const isAuthenticated = userData || token;
+const storedUser = JSON.parse(localStorage.getItem("user"));
+
+const currentUser = userData || storedUser;
+const isAuthenticated = !!token;
 
     // Live clock update
     useEffect(() => {
@@ -19,11 +22,14 @@ export default function Layout() {
     }, []);
 
     const handleLogout = () => {
-        localStorage.removeItem("token");
-        setUserData(null);
-        showMessage("Logged out successfully", "info");
-        navigate("/");
-    };
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+
+    setUserData(null);
+
+    showMessage("Logged out successfully", "info");
+    navigate("/");
+};
 
     return (
         <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] flex flex-col transition-colors duration-300">
@@ -51,10 +57,10 @@ export default function Layout() {
                         <div className="flex items-center gap-4">
                             <div className="flex items-center gap-2">
                                 <div className="w-9 h-9 rounded-full bg-[var(--primary)] text-white flex items-center justify-center font-semibold text-sm shadow-sm">
-                                    {userData?.name ? userData.name.charAt(0).toUpperCase() : "U"}
+                                    {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : "U"}
                                 </div>
                                 <span className="font-medium hidden sm:inline">
-                                    {userData?.name || "User"}
+                                    {currentUser?.name || "User"}
                                 </span>
                             </div>
                             <button 

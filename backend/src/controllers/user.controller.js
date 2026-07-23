@@ -26,7 +26,13 @@ const login = async (req, res) => {
 
         user.token = token;
         await user.save();
-        return res.status(httpStatus.OK).json({ token: token })
+        return res.status(httpStatus.OK).json({
+            token,
+            user: {
+                name: user.name,
+                username: user.username
+            }
+        });
 
     } catch (e) {
         return res.status(500).json({ message: `Somthing went Wrong ${e}` })

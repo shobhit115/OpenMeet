@@ -25,6 +25,7 @@ export const AuthProvider = ({ children }) => {
             const request = await client.post("/login", { username, password });
             if (request.status === 200) {
                 localStorage.setItem("token", request.data.token);
+                localStorage.setItem("user", JSON.stringify(request.data.user));
                 setUserData(request.data.user); // Assuming your API returns user info
             }
         } catch (err) {
