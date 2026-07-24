@@ -15,7 +15,7 @@ export default function Home() {
     const isAuthenticated = userData || token;
 
     // Adjust this to match your backend URL
-    const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+    const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
     const generateMeetingCode = () => {
         const chars = "abcdefghijklmnopqrstuvwxyz";
